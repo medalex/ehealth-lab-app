@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Lab System</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background:#faf5f0; font-size:.92rem; }
+    .topbar { background:#6d4c41; color:#fff; padding:.65rem 1.4rem; display:flex; align-items:center; gap:.8rem; }
+    .topbar h1 { font-size:1.05rem; margin:0; font-weight:600; }
+    .wrap { max-width:1000px; margin:0 auto; padding:1.4rem; }
+    .panel { background:#fff; border-radius:8px; border:1px solid #e8ddd7; margin-bottom:1.2rem; overflow:hidden; }
+    .panel-head { background:#fdf0ea; border-bottom:1px solid #e8ddd7; padding:.5rem 1rem; font-weight:600; font-size:.84rem; color:#6d4c41; }
+    .panel-body { padding:1rem; }
+    label { font-size:.82rem; font-weight:500; }
+    .mono { font-family:monospace; font-size:.75rem; }
+    .btn-main { background:#6d4c41; border-color:#6d4c41; color:#fff; }
+    .btn-main:hover { background:#8d6e63; border-color:#8d6e63; color:#fff; }
+    table { font-size:.82rem; }
+    .dkg-ok { font-size:.72rem; padding:.15em .45em; border-radius:3px; background:#d4edda; color:#155724; font-weight:600; }
+    .dkg-no { font-size:.72rem; padding:.15em .45em; border-radius:3px; background:#f8d7da; color:#721c24; font-weight:600; }
+  </style>
+</head>
+<body>
+<div class="topbar">
+  <span>🔬</span>
+  <h1>Laboratory Information System</h1>
+  <span class="ms-auto opacity-75 small">eHealth Demo · Lab API :3002</span>
+</div>
+
+<div class="wrap">
+
+  <div class="panel">
+    <div class="panel-head">Submit lab result</div>
+    <div class="panel-body">
+      <div class="row g-2">
+        <div class="col-sm-4">
+          <label>Patient ID</label>
+          <input id="pid" class="form-control form-control-sm" placeholder="Patient UUID (from Patient Portal)">
+        </div>
+        <div class="col-sm-3">
+          <label>Test (LOINC)</label>
+          <select id="loinc" class="form-select form-select-sm" onchange="syncMeta()">
+            <option value="33914-3" data-metric="eGFR" data-unit="mL/min/1.73m²" data-formula="0">33914-3 · eGFR CKD-EPI</option>
+            <option value="2164-2"  data-metric="eGFR" data-unit="mL/min"        data-formula="1">2164-2 · eGFR Cockcroft-Gault</option>
+            <option value="2823-3"  data-metric="Potassium" data-unit="mmol/L"   data-formula="2">2823-3 · Potassium</option>
+            <option value="2160-0"  data-metric="Creatinine" data-unit="μmol/L"  data-formula="2">2160-0 · Creatinine</option>
+          </select>
+        </div>
+        <div class="col-sm-1">
+          <label>Value</label>
+          <input id="val" type="number" step="0.1" class="form-control form-control-sm" value="65">
+        </div>
+        <div class="col-sm-2">
+          <label>Unit</label>
+          <input id="unit" class="form-control form-control-sm" value="mL/min/1.73m²">
+        </div>
+        <div class="col-sm-2">
+          <label>Lab name</label>
+          <input id="lab" class="form-control form-control-sm" value="City Lab">
+        </div>
+      </div>
+      <div class="mt-2 d-flex align-items-center gap-2">
+        <button class="btn btn-main btn-sm" onclick="submit()">Submit &amp; publish to DKG</button>
+        <span id="spin" class="d-none text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Publishing…</span>
+      </div>
+      <div id="msg" class="mt-2"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head d-flex justify-content-between align-items-center">
+      Results
+      <div class="d-flex gap-2">
+        <input id="fpid" class="form-control form-control-sm" placeholder="Filter by patient UUID" style="width:220px" oninput="filter()">
+        <button class="btn btn-outline-secondary btn-sm" onclick="load()">↻ All</button>
+      </div>
+    </div>
+    <div class="panel-body p-0">
+      <table class="table table-hover table-sm mb-0">
+        <thead class="table-light">
+          <tr><th>Patient</th><th>LOINC</th><th>Metric</th><th>Value</th><th>Unit</th><th>Lab</th><th>Date</th><th>DKG</th></tr>
+        </thead>
+        <tbody id="list"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = 'http://localhost:3002';
+let all = [];
+
+const get  = p => fetch(API+p).then(r=>r.json());
+const post = (p,b) => fetch(API+p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(async r=>{if(!r.ok)throw new Error(await r.text());return r.json();});
+const flash = (id,html,t='success') => document.getElementById(id).innerHTML=`<div class="alert alert-${t} p-2 small mb-0">${html}</div>`;
+
+function syncMeta(){
+  const o=document.getElementById('loinc').options[document.getElementById('loinc').selectedIndex];
+  document.getElementById('unit').value=o.dataset.unit||'';
+}
+
+async function submit(){
+  const spin=document.getElementById('spin'); spin.classList.remove('d-none');
+  document.getElementById('msg').innerHTML='';
+  try{
+    const sel=document.getElementById('loinc');
+    const opt=sel.options[sel.selectedIndex];
+    const r=await post('/api/results',{
+      patientId:document.getElementById('pid').value,
+      loincCode:sel.value,
+      metric:opt.dataset.metric,
+      formula:parseInt(opt.dataset.formula),
+      value:parseFloat(document.getElementById('val').value),
+      unit:document.getElementById('unit').value,
+      measuredBy:document.getElementById('lab').value,
+    });
+    flash('msg',`Saved — DKG: <span class="mono">${r.dkgUal||'(DKG unavailable)'}</span>`);
+    load();
+  }catch(e){flash('msg',e.message,'danger');}
+  finally{spin.classList.add('d-none');}
+}
+
+async function load(){ all=await get('/api/results'); render(all); }
+function filter(){ const f=document.getElementById('fpid').value.toLowerCase(); render(f?all.filter(r=>r.patientId?.toLowerCase().includes(f)):all); }
+
+function render(rows){
+  document.getElementById('list').innerHTML = rows.length
+    ? rows.map(r=>`<tr>
+        <td class="mono">${r.patientId?.slice(0,8)}… <button class="btn btn-link p-0" onclick="navigator.clipboard.writeText('${r.patientId}')">📋</button></td>
+        <td>${r.loincCode}</td><td>${r.metric}</td>
+        <td><strong>${r.value}</strong></td><td>${r.unit}</td>
+        <td>${r.measuredBy}</td>
+        <td>${new Date(r.measuredAt).toLocaleDateString()}</td>
+        <td>${r.dkgUal?`<span class="dkg-ok" title="${r.dkgUal}">✓ DKG</span>`:'<span class="dkg-no">local</span>'}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="8" class="text-center text-muted py-3">No results yet</td></tr>';
+}
+
+load();
+</script>
+</body>
+</html>
